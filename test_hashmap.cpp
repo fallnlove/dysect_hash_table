@@ -1,7 +1,3 @@
-//
-// Created by Аскар Цыганов on 11.01.2023.
-//
-
 #include "hash_map.h"
 #include <iostream>
 #include <cstdlib>
