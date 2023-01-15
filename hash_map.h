@@ -10,7 +10,6 @@
 
 #include <array>
 #include <exception>
-#include <forward_list>
 #include <iterator>
 #include <list>
 #include <memory>
@@ -19,8 +18,7 @@
 #include <vector>
 
 const size_t SUBTABLES_NUMBER = 1 << 8;
-const size_t BUCKET_SIZE = 1 << 3;
-const size_t HASH_NUMBER = 3;
+const size_t BUCKET_SIZE = 1 << 3;  // TODO: make it a parameter 2
 
 template<class KeyType, class ValueType, class Hash = std::hash<KeyType> >
 class HashMap {
@@ -55,36 +53,48 @@ public:
         size_t hash = hasher_(element.first);
         Subtable_& subtable = subtables_[GetHash(hash)];
         Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
-        InsertElementInBucket(bucket, {element.first, element.second}, hash, subtable.power_of_two_);
-        if (bucket.CheckFull(BUCKET_SIZE)) {
+        InsertElementInBucket(bucket, element, hash, subtable.power_of_two_);
+        if (bucket.CheckFull(BUCKET_SIZE)) {  // TODO: make it a parameter
             ++subtable.full_buckets_;
             CheckFullSubtable(subtable);
         }
         ++size_;
     }
 
-    void erase(KeyType key) {}
+    void erase(KeyType key) {
+        size_t hash = hasher_(key);
+        Subtable_& subtable = subtables_[GetHash(hash)];
+        Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
+        for (auto iterator = bucket.data_.begin(); iterator != bucket.data_.end(); ++iterator) {
+            if (iterator->key_ == key) {
+                bucket.data_.erase(iterator);
+                --size_;
+                return;
+            }
+        }
+    }
 
     const_iterator find(KeyType key) const {}
 
     iterator find(KeyType key) {}
 
     ValueType &operator[](KeyType key) {
-        auto& element = FindElement(key);
-        if (element.is_deleted_ == true) {
-            assert(false);
+        bool is_found = false;
+        auto& element = FindElement(key, is_found);
+        if (!is_found) {
             insert({key, ValueType()});
-            return FindElement(key).value_;
+            return FindElement(key, is_found).second;
         }
-        return element.value_;
+        return element.second;
     }
 
     const ValueType &at(KeyType key) const {
-        auto& element = FindElement(key);
-        if (element.is_deleted_ == true) {
-            throw std::out_of_range("No such element");
+        bool is_found = false;
+        auto& element = FindElement(key, is_found);
+        if (!is_found) {
+            throw std::out_of_range("Key not found");
         }
-        return element.value_;
+        return element.second;
     }
 
     iterator begin() {}
@@ -105,20 +115,10 @@ public:
     }
 
 private:
-    struct Element_ {
-        KeyType key_ = KeyType();
-        ValueType value_ = ValueType();
-        bool is_deleted_ = true;
-
-        Element_() = default;
-
-        Element_(KeyType key, ValueType value) : key_(key), value_(value), is_deleted_(false) {}
-
-        Element_(KeyType key, ValueType value, bool is_deleted) : key_(key), value_(value), is_deleted_(is_deleted) {}
-    };
+    using Element_ = std::pair<KeyType, ValueType>;
 
     struct Bucket_ {
-        std::forward_list<Element_> data_;
+        std::list<Element_> data_;
         bool is_full_ = false;
         size_t size_left_ = 0;
         size_t size_right_ = 0;
@@ -127,7 +127,7 @@ private:
         Bucket_() = default;
 
         bool CheckFull(size_t capacity) {
-            if (size_left_ > capacity && size_right_ > capacity && !is_full_) {
+            if (size_left_ > capacity && size_right_ > capacity && !is_full_) {  // TODO: make it OR
                 is_full_ = true;
                 return true;
             }
@@ -146,25 +146,29 @@ private:
         }
     };
 
-    Hash hasher_;
     std::array<Subtable_, SUBTABLES_NUMBER> subtables_;
+    std::list<std::weak_ptr<Element_>> elements_list_;
+    Hash hasher_;
     size_t size_ = 0;
-    Element_ fake_empty_element_ = Element_{ValueType(), KeyType(), true};
     double load_factor_ = 0.8;
+    Element_ fake_element_;
 
     size_t GetHash(size_t hash) const {  // TODO: change to 64 bit hash
         return (((hash >> 32) & ((1 << 8) - 1))) ^ (((hash >> 16) & ((1 << 8) - 1))) ^
         (((hash >> 8) & ((1 << 8) - 1))) ^ (hash & ((1 << 8) - 1));
     }
 
-    Element_& FindElement(KeyType key) {
+    Element_& FindElement(KeyType key, bool& is_found) {
         size_t hash = hasher_(key);
-        for (auto& node : subtables_[GetHash(hash)].buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)].data_) {
-            if (node.key_ == key && !node.is_deleted_) {
+        auto& bucket = subtables_[GetHash(hash)].buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
+        for (auto& node : bucket.data_) {
+            if (node.first == key) {
+                is_found = true;
                 return node;
             }
         }
-        return fake_empty_element_;
+        is_found = false;
+        return fake_element_;
     }
 
     void CheckFullSubtable(Subtable_& subtable) {
@@ -174,10 +178,7 @@ private:
         std::unique_ptr<Bucket_[]> new_buckets = std::make_unique<Bucket_[]>(subtable.subtable_size_ * 2);
         for (size_t i = 0; i < subtable.subtable_size_; ++i) {
             for (auto& element : subtable.buckets_.get()[i].data_) {
-                if (element.is_deleted_) {
-                    continue;
-                }
-                size_t hash = hasher_(element.key_);
+                size_t hash = hasher_(element.first);
                 Bucket_& bucket = new_buckets.get()[hash & ((1 << (subtables_[GetHash(hash)].power_of_two_ + 1)) - 1)];
                 InsertElementInBucket(bucket, element, hash, subtable.power_of_two_ + 1);
             }
@@ -187,7 +188,7 @@ private:
         ++subtable.power_of_two_;
     }
 
-    void InsertElementInBucket(Bucket_& bucket, Element_ element, size_t hash, size_t power_of_two_) {
+    void InsertElementInBucket(Bucket_& bucket, Element_& element, size_t hash, size_t power_of_two_) {
         bucket.data_.push_front(element);
         if (((hash >> power_of_two_) & 1) == 0) {
             ++bucket.size_left_;
