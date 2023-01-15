@@ -10,6 +10,7 @@
 
 #include <array>
 #include <exception>
+#include <forward_list>
 #include <iterator>
 #include <list>
 #include <memory>
@@ -94,7 +95,14 @@ public:
 
     const_iterator end() const {}
 
-    void clear() {}
+    void clear() {
+        for (size_t i = 0; i < SUBTABLES_NUMBER; ++i) {
+            subtables_[i].buckets_.reset(new Bucket_[1]);
+            subtables_[i].power_of_two_ = 0;
+            subtables_[i].full_buckets_ = 0;
+        }
+        size_ = 0;
+    }
 
 private:
     struct Element_ {
@@ -110,7 +118,7 @@ private:
     };
 
     struct Bucket_ {
-        std::list<Element_> data_;
+        std::forward_list<Element_> data_;
         bool is_full_ = false;
         size_t size_left_ = 0;
         size_t size_right_ = 0;
@@ -180,7 +188,7 @@ private:
     }
 
     void InsertElementInBucket(Bucket_& bucket, Element_ element, size_t hash, size_t power_of_two_) {
-        bucket.data_.push_back(element);
+        bucket.data_.push_front(element);
         if (((hash >> power_of_two_) & 1) == 0) {
             ++bucket.size_left_;
         } else {
