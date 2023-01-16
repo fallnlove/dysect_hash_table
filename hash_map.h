@@ -23,11 +23,9 @@ const size_t BUCKET_SIZE = 1 << 3;  // TODO: make it a parameter 2
 template<class KeyType, class ValueType, class Hash = std::hash<KeyType> >
 class HashMap {
 public:
-    class iterator {
-    };
+    class iterator;
 
-    class const_iterator {
-    };
+    class const_iterator;
 
     explicit HashMap(Hash hasher = Hash()) {}
 
@@ -127,7 +125,7 @@ private:
         Bucket_() = default;
 
         bool CheckFull(size_t capacity) {
-            if (size_left_ > capacity && size_right_ > capacity && !is_full_) {  // TODO: make it OR
+            if (!is_full_ && size_left_ > capacity && size_right_ > capacity) {  // TODO: make it OR
                 is_full_ = true;
                 return true;
             }
@@ -147,7 +145,6 @@ private:
     };
 
     std::array<Subtable_, SUBTABLES_NUMBER> subtables_;
-    std::list<std::weak_ptr<Element_>> elements_list_;
     Hash hasher_;
     size_t size_ = 0;
     double load_factor_ = 0.8;
@@ -196,6 +193,61 @@ private:
             ++bucket.size_right_;
         }
     }
+
+    friend class iterator;
+
+public:
+
+    class iterator {
+    public:
+        using bucket_iterator = std::list<std::pair<const KeyType, ValueType>>::iterator;
+
+        iterator(std::array<Subtable_, SUBTABLES_NUMBER> subtables, size_t subtable_index, size_t bucket_index,
+                 bucket_iterator iterator_in_bucket) :
+                subtables_(subtables), subtable_index_(subtable_index), bucket_index_(bucket_index),
+                iterator_in_bucket_(iterator_in_bucket) {}
+
+        iterator& operator++() {
+            if (++iterator_in_bucket_ != subtables_[subtable_index_].buckets_.get()[bucket_index_].data_.end()) {
+                return *this;
+            }
+            for (size_t i = subtable_index_; i < SUBTABLES_NUMBER; ++i) {
+                Subtable_& subtable = subtables_[i];
+                for (size_t j = bucket_index_; j < BUCKET_SIZE; ++j) {
+                    Bucket_& bucket = subtable.buckets_.get()[j];
+                    for (auto iterator = bucket.data_.begin(); iterator != bucket.data_.end(); ++iterator) {
+                        iterator_in_bucket_ = iterator;
+                        return *this;
+                    }
+                }
+            }
+        }
+
+        Element_& operator*() {
+            return *iterator_in_bucket_;
+        }
+
+        Element_* operator->() {
+            return *iterator_in_bucket_;
+        }
+
+        bool operator==(const iterator& other) const {
+            return iterator_in_bucket_ == other.iterator_in_bucket_;
+        }
+
+        bool operator!=(const iterator& other) const {
+            return !(*this == other);
+        }
+
+    private:
+        size_t subtable_index_;
+        size_t bucket_index_;
+        bucket_iterator iterator_in_bucket_;
+        std::array<Subtable_, SUBTABLES_NUMBER>* subtables_;
+    };
+
+    class const_iterator {
+    };
 
 };
 
