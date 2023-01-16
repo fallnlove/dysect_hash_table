@@ -8,6 +8,8 @@
 #ifndef MY_OWN_HASH_TABLE_HASH_MAP_H
 #define MY_OWN_HASH_TABLE_HASH_MAP_H
 
+#include <iostream>
+
 #include <array>
 #include <exception>
 #include <iterator>
@@ -18,7 +20,8 @@
 #include <vector>
 
 const size_t SUBTABLES_NUMBER = 1 << 8;
-const size_t BUCKET_SIZE = 1 << 3;  // TODO: make it a parameter 2
+const size_t BUCKET_SIZE = 1 << 2;  // TODO: make it a parameter 2
+const size_t HASH_NUMBER = 3;
 
 template<class KeyType, class ValueType, class Hash = std::hash<KeyType> >
 class HashMap {
@@ -54,10 +57,10 @@ public:
 
     void insert(std::pair<KeyType, ValueType> element) {
         size_t hash = hasher_(element.first);
-        Subtable_& subtable = subtables_[GetHash(hash)];
-        Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
+        Subtable_& subtable = GetOptimalSubtable(hash);
+        Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtable.power_of_two_) - 1)];
         Element_ element_ = {element.first, element.second};
-        if (!CheckElementInBucket(bucket, element.first)) {
+        if (!CheckElementInTable(element.first)) {
             InsertElementInBucket(bucket, element_, hash, subtable.power_of_two_);
             ++size_;
         }
@@ -69,13 +72,15 @@ public:
 
     void erase(KeyType key) {
         size_t hash = hasher_(key);
-        Subtable_& subtable = subtables_[GetHash(hash)];
-        Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
-        for (auto list_iterator = bucket.data_.begin(); list_iterator != bucket.data_.end(); ++list_iterator) {
-            if (list_iterator->first == key) {
-                bucket.data_.erase(list_iterator);
-                --size_;
-                return;
+        for (size_t i = 0; i < HASH_NUMBER; ++i) {
+            auto& subtable = subtables_[GetHash(hash, i)];
+            Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
+            for (auto list_iterator = bucket.data_.begin(); list_iterator != bucket.data_.end(); ++list_iterator) {
+                if (list_iterator->first == key) {
+                    bucket.data_.erase(list_iterator);
+                    --size_;
+                    return;
+                }
             }
         }
     }
@@ -135,7 +140,7 @@ private:
         Bucket_() = default;
 
         bool CheckFull(size_t capacity) {
-            if (!is_full_ && size_left_ > capacity && size_right_ > capacity) {  // TODO: make it OR
+            if (!is_full_ && size_left_ >= capacity && size_right_ >= capacity) {  // TODO: make it OR
                 is_full_ = true;
                 return true;
             }
@@ -164,12 +169,19 @@ private:
         (((hash >> 8) & ((1 << 8) - 1))) ^ (hash & ((1 << 8) - 1));
     }
 
+    size_t GetHash(size_t hash, size_t i) const {
+        return GetHash((hash >> 32) + (hash & ((1ll << 32) - 1)) * (i + 1));
+    }
+
     Element_& FindElement(KeyType key) const {
         size_t hash = hasher_(key);
-        auto& bucket = subtables_[GetHash(hash)].buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
-        for (auto& element : bucket.data_) {
-            if (element.first == key) {
-                return element;
+        for (size_t i = 0; i < HASH_NUMBER; ++i) {
+            auto& subtable = subtables_[GetHash(hash, i)];
+            auto& bucket = subtable.buckets_.get()[hash & ((1 << subtable.power_of_two_) - 1)];
+            for (auto& element : bucket.data_) {
+                if (element.first == key) {
+                    return element;
+                }
             }
         }
         throw std::out_of_range("Key not found");
@@ -183,7 +195,7 @@ private:
         for (size_t i = 0; i < subtable.subtable_size_; ++i) {
             for (auto& element : subtable.buckets_.get()[i].data_) {
                 size_t hash = hasher_(element.first);
-                Bucket_& bucket = new_buckets.get()[hash & ((1 << (subtables_[GetHash(hash)].power_of_two_ + 1)) - 1)];
+                Bucket_& bucket = new_buckets.get()[hash & ((1 << (subtable.power_of_two_ + 1)) - 1)];
                 InsertElementInBucket(bucket, element, hash, subtable.power_of_two_ + 1);
             }
         }
@@ -201,13 +213,30 @@ private:
         }
     }
 
-    bool CheckElementInBucket(Bucket_& bucket, KeyType key) const {
-        for (auto& element : bucket.data_) {
-            if (element.first == key) {
-                return true;
+    bool CheckElementInTable(KeyType key) const {
+        size_t hash = hasher_(key);
+        for (size_t i = 0; i < HASH_NUMBER; ++i) {
+            auto& subtable = subtables_[GetHash(hash, i)];
+            auto& bucket = subtable.buckets_.get()[hash & ((1 << subtable.power_of_two_) - 1)];
+            for (auto& element : bucket.data_) {
+                if (element.first == key) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    Subtable_& GetOptimalSubtable(size_t hash) {
+        size_t optimal_subtable = GetHash(hash, 0);
+        size_t optimal_subtable_size = subtables_[GetHash(hash, 0)].subtable_size_;
+        for (size_t i = 1; i < HASH_NUMBER; ++i) {
+            if (subtables_[GetHash(hash, i)].subtable_size_ < optimal_subtable_size) {
+                optimal_subtable = GetHash(hash, i);
+                optimal_subtable_size = subtables_[GetHash(hash, i)].subtable_size_;
+            }
+        }
+        return subtables_[optimal_subtable];
     }
 
 };
