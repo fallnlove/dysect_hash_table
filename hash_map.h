@@ -2,7 +2,7 @@
     Created by Askar Tsyganov on 11.01.2023.
 
     This hash table is based on the DySECT hash table from https://arxiv.org/abs/1705.00997
-    It will be modified by Iceberg Hashing and other improvements
+    I modified it to use a list instead of constant array and to use a single hash function instead of a few hash functions.
 */
 
 #ifndef MY_OWN_HASH_TABLE_HASH_MAP_H
@@ -23,7 +23,12 @@ const size_t BUCKET_SIZE = 1 << 3;  // TODO: make it a parameter 2
 template<class KeyType, class ValueType, class Hash = std::hash<KeyType> >
 class HashMap {
 public:
-    class iterator;
+    class iterator {
+    public:
+        iterator() = default;
+
+
+    };
 
     class const_iterator;
 
@@ -51,57 +56,62 @@ public:
         size_t hash = hasher_(element.first);
         Subtable_& subtable = subtables_[GetHash(hash)];
         Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
-        InsertElementInBucket(bucket, element, hash, subtable.power_of_two_);
-        if (bucket.CheckFull(BUCKET_SIZE)) {  // TODO: make it a parameter
+        Element_ element_ = {element.first, element.second};
+        if (!CheckElementInBucket(bucket, element.first)) {
+            InsertElementInBucket(bucket, element_, hash, subtable.power_of_two_);
+            ++size_;
+        }
+        if (bucket.CheckFull(BUCKET_SIZE)) {
             ++subtable.full_buckets_;
             CheckFullSubtable(subtable);
         }
-        ++size_;
     }
 
     void erase(KeyType key) {
         size_t hash = hasher_(key);
         Subtable_& subtable = subtables_[GetHash(hash)];
         Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
-        for (auto iterator = bucket.data_.begin(); iterator != bucket.data_.end(); ++iterator) {
-            if (iterator->key_ == key) {
-                bucket.data_.erase(iterator);
+        for (auto list_iterator = bucket.data_.begin(); list_iterator != bucket.data_.end(); ++list_iterator) {
+            if (list_iterator->first == key) {
+                bucket.data_.erase(list_iterator);
                 --size_;
                 return;
             }
         }
     }
 
-    const_iterator find(KeyType key) const {}
+    iterator find(KeyType key) {
+    }
 
-    iterator find(KeyType key) {}
+    const_iterator find(KeyType key) const {
+    }
 
     ValueType &operator[](KeyType key) {
-        bool is_found = false;
-        auto& element = FindElement(key, is_found);
-        if (!is_found) {
-            insert({key, ValueType()});
-            return FindElement(key, is_found).second;
+        try {
+            auto& element = FindElement(key);
+            return element.second;
+        } catch (std::out_of_range& exception) {
+            insert(std::make_pair(key, ValueType()));
+            return FindElement(key).second;
         }
-        return element.second;
     }
 
     const ValueType &at(KeyType key) const {
-        bool is_found = false;
-        auto& element = FindElement(key, is_found);
-        if (!is_found) {
-            throw std::out_of_range("Key not found");
-        }
+        auto& element = FindElement(key);
         return element.second;
     }
 
-    iterator begin() {}
+    iterator begin() {
+    }
 
-    iterator end() {}
+    iterator end() {
+    }
 
-    const_iterator begin() const {}
+    const_iterator begin() const {
+    }
 
-    const_iterator end() const {}
+    const_iterator end() const {
+    }
 
     void clear() {
         for (size_t i = 0; i < SUBTABLES_NUMBER; ++i) {
@@ -113,7 +123,7 @@ public:
     }
 
 private:
-    using Element_ = std::pair<KeyType, ValueType>;
+    using Element_ = std::pair<const KeyType, ValueType>;
 
     struct Bucket_ {
         std::list<Element_> data_;
@@ -148,24 +158,21 @@ private:
     Hash hasher_;
     size_t size_ = 0;
     double load_factor_ = 0.8;
-    Element_ fake_element_;
 
     size_t GetHash(size_t hash) const {  // TODO: change to 64 bit hash
         return (((hash >> 32) & ((1 << 8) - 1))) ^ (((hash >> 16) & ((1 << 8) - 1))) ^
         (((hash >> 8) & ((1 << 8) - 1))) ^ (hash & ((1 << 8) - 1));
     }
 
-    Element_& FindElement(KeyType key, bool& is_found) {
+    Element_& FindElement(KeyType key) const {
         size_t hash = hasher_(key);
         auto& bucket = subtables_[GetHash(hash)].buckets_.get()[hash & ((1 << subtables_[GetHash(hash)].power_of_two_) - 1)];
-        for (auto& node : bucket.data_) {
-            if (node.first == key) {
-                is_found = true;
-                return node;
+        for (auto& element : bucket.data_) {
+            if (element.first == key) {
+                return element;
             }
         }
-        is_found = false;
-        return fake_element_;
+        throw std::out_of_range("Key not found");
     }
 
     void CheckFullSubtable(Subtable_& subtable) {
@@ -194,60 +201,14 @@ private:
         }
     }
 
-    friend class iterator;
-
-public:
-
-    class iterator {
-    public:
-        using bucket_iterator = std::list<std::pair<const KeyType, ValueType>>::iterator;
-
-        iterator(std::array<Subtable_, SUBTABLES_NUMBER> subtables, size_t subtable_index, size_t bucket_index,
-                 bucket_iterator iterator_in_bucket) :
-                subtables_(subtables), subtable_index_(subtable_index), bucket_index_(bucket_index),
-                iterator_in_bucket_(iterator_in_bucket) {}
-
-        iterator& operator++() {
-            if (++iterator_in_bucket_ != subtables_[subtable_index_].buckets_.get()[bucket_index_].data_.end()) {
-                return *this;
-            }
-            for (size_t i = subtable_index_; i < SUBTABLES_NUMBER; ++i) {
-                Subtable_& subtable = subtables_[i];
-                for (size_t j = bucket_index_; j < BUCKET_SIZE; ++j) {
-                    Bucket_& bucket = subtable.buckets_.get()[j];
-                    for (auto iterator = bucket.data_.begin(); iterator != bucket.data_.end(); ++iterator) {
-                        iterator_in_bucket_ = iterator;
-                        return *this;
-                    }
-                }
+    bool CheckElementInBucket(Bucket_& bucket, KeyType key) const {
+        for (auto& element : bucket.data_) {
+            if (element.first == key) {
+                return true;
             }
         }
-
-        Element_& operator*() {
-            return *iterator_in_bucket_;
-        }
-
-        Element_* operator->() {
-            return *iterator_in_bucket_;
-        }
-
-        bool operator==(const iterator& other) const {
-            return iterator_in_bucket_ == other.iterator_in_bucket_;
-        }
-
-        bool operator!=(const iterator& other) const {
-            return !(*this == other);
-        }
-
-    private:
-        size_t subtable_index_;
-        size_t bucket_index_;
-        bucket_iterator iterator_in_bucket_;
-        std::array<Subtable_, SUBTABLES_NUMBER>* subtables_;
-    };
-
-    class const_iterator {
-    };
+        return false;
+    }
 
 };
 
