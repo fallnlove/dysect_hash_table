@@ -183,6 +183,7 @@ public:
     void clear() {
         for (size_t i = 0; i < SUBTABLES_NUMBER; ++i) {
             subtables_[i].buckets_.reset(new Bucket_[1]);
+            subtables_[i].subtable_size_ = 1;
             subtables_[i].power_of_two_ = 0;
             subtables_[i].full_buckets_ = 0;
         }
