@@ -21,17 +21,12 @@
 
 const size_t SUBTABLES_NUMBER = 1 << 8;
 const size_t BUCKET_SIZE = 1 << 2;  // TODO: make it a parameter 2
-const size_t HASH_NUMBER = 3;
+const size_t HASH_NUMBER = 1;
 
 template<class KeyType, class ValueType, class Hash = std::hash<KeyType> >
 class HashMap {
 public:
-    class iterator {
-    public:
-        iterator() = default;
-
-
-    };
+    class iterator;
 
     class const_iterator;
 
@@ -238,6 +233,95 @@ private:
         }
         return subtables_[optimal_subtable];
     }
+
+    Element_& GetFirstElementInBucketAfter(Bucket_& bucket, auto iter) {
+
+    }
+
+public:
+    class iterator {
+    public:
+        iterator() = default;
+
+        explicit iterator(Element_* ptr) : ptr_(ptr) {}
+
+        iterator& operator++() {
+
+            return *this;
+        }
+
+        iterator operator++(int) {
+            iterator tmp = *this;
+            ++ptr_;
+            return tmp;
+        }
+
+        bool operator==(const iterator& other) const {
+            return ptr_ == other.ptr_;
+        }
+
+        bool operator!=(const iterator& other) const {
+            return ptr_ != other.ptr_;
+        }
+
+        Element_& operator*() const {
+            return *ptr_;
+        }
+
+        Element_* operator->() const {
+            return ptr_;
+        }
+
+    private:
+        Element_* ptr_;
+        Subtable_* subtable_;
+        size_t subtable_number_;
+        size_t bucket_number_;
+        typename std::list<std::pair<const KeyType, ValueType>>::iterator list_iterator_;
+
+    };
+
+    class const_iterator {
+    public:
+        const_iterator() = default;
+
+        explicit const_iterator(const Element_* ptr) : ptr_(ptr) {}
+
+        const_iterator& operator++() {
+            ++ptr_;
+            return *this;
+        }
+
+        const_iterator operator++(int) {
+            const_iterator tmp = *this;
+            ++ptr_;
+            return tmp;
+        }
+
+        bool operator==(const const_iterator& other) const {
+            return ptr_ == other.ptr_;
+        }
+
+        bool operator!=(const const_iterator& other) const {
+            return ptr_ != other.ptr_;
+        }
+
+        const Element_& operator*() const {
+            return *ptr_;
+        }
+
+        const Element_* operator->() const {
+            return ptr_;
+        }
+
+    private:
+        Element_* ptr_;
+        Subtable_* subtable_;
+        size_t subtable_number_;
+        size_t bucket_number_;
+        typename std::list<std::pair<const KeyType, ValueType>>::iterator list_iterator_;
+
+    };
 
 };
 
