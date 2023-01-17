@@ -30,13 +30,39 @@ public:
 
     class const_iterator;
 
-    explicit HashMap(Hash hasher = Hash()) {}
+    explicit HashMap(const Hash& hasher = Hash()) : hasher_(hasher) {}
 
-    HashMap(std::iterator<std::forward_iterator_tag, std::pair<KeyType, ValueType>> begin,
-            std::iterator<std::forward_iterator_tag, std::pair<KeyType, ValueType>> end,
-            Hash hasher = Hash()) {}
+    template<class InputIterator>
+    HashMap(InputIterator begin,
+            InputIterator end,
+            Hash hasher = Hash()) : hasher_(hasher) {
+        for (auto it = begin; it != end; it++) {
+            insert(*it);
+        }
+    }
 
-    HashMap(std::initializer_list<std::pair<KeyType, ValueType>> list, Hash hasher = Hash()) {}
+    HashMap(std::initializer_list<std::pair<KeyType, ValueType>> list, const Hash& hasher = Hash()) : hasher_(hasher) {
+        for (auto &item : list) {
+            insert(item);
+        }
+    }
+
+    HashMap(const HashMap &other) {
+        for (auto &item : other) {
+            insert(item);
+        }
+    }
+
+    HashMap &operator=(const HashMap &other) {
+        if (this == &other) {
+            return *this;
+        }
+        clear();
+        for (auto &item : other) {
+            insert(item);
+        }
+        return *this;
+    }
 
     size_t size() const {
         return size_;
@@ -81,9 +107,35 @@ public:
     }
 
     iterator find(KeyType key) {
+        if (CheckElementInTable(key)) {
+            size_t hash = hasher_(key);
+            for (size_t i = 0; i < HASH_NUMBER; ++i) {
+                auto& subtable = subtables_[GetHash(hash, i)];
+                Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtable.power_of_two_) - 1)];
+                for (auto list_iterator = bucket.data_.begin(); list_iterator != bucket.data_.end(); ++list_iterator) {
+                    if (list_iterator->first == key) {
+                        return iterator(subtables_, GetHash(hash, i), hash & ((1 << subtable.power_of_two_) - 1), list_iterator);
+                    }
+                }
+            }
+        }
+        return iterator(subtables_, 0, 0, subtables_[0].buckets_.get()[0].data_.end());
     }
 
     const_iterator find(KeyType key) const {
+        if (CheckElementInTable(key)) {
+            size_t hash = hasher_(key);
+            for (size_t i = 0; i < HASH_NUMBER; ++i) {
+                auto& subtable = subtables_[GetHash(hash, i)];
+                Bucket_& bucket = subtable.buckets_.get()[hash & ((1 << subtable.power_of_two_) - 1)];
+                for (auto list_iterator = bucket.data_.begin(); list_iterator != bucket.data_.end(); ++list_iterator) {
+                    if (list_iterator->first == key) {
+                        return const_iterator(subtables_, GetHash(hash, i), hash & ((1 << subtable.power_of_two_) - 1), list_iterator);
+                    }
+                }
+            }
+        }
+        return const_iterator(subtables_, 0, 0, subtables_[0].buckets_.get()[0].data_.end());
     }
 
     ValueType &operator[](KeyType key) {
@@ -99,15 +151,33 @@ public:
     }
 
     iterator begin() {
+        for (size_t i = 0; i < SUBTABLES_NUMBER; ++i) {
+            for (size_t j = 0; j < (1 << subtables_[i].power_of_two_); ++j) {
+                if (!subtables_[i].buckets_.get()[j].data_.empty()) {
+                    return iterator(subtables_, i, j, subtables_[i].buckets_.get()[j].data_.begin());
+                }
+            }
+        }
+        return end();
     }
 
     iterator end() {
+        return iterator(subtables_, 0, 0, subtables_[0].buckets_.get()[0].data_.end());
     }
 
     const_iterator begin() const {
+        for (size_t i = 0; i < SUBTABLES_NUMBER; ++i) {
+            for (size_t j = 0; j < (1 << subtables_[i].power_of_two_); ++j) {
+                if (!subtables_[i].buckets_.get()[j].data_.empty()) {
+                    return const_iterator(subtables_, i, j, subtables_[i].buckets_.get()[j].data_.begin());
+                }
+            }
+        }
+        return end();
     }
 
     const_iterator end() const {
+        return const_iterator(subtables_, 0, 0, subtables_[0].buckets_.get()[0].data_.end());
     }
 
     void clear() {
@@ -157,7 +227,7 @@ private:
     double load_factor_ = 0.8;
 
     size_t GetHash(size_t hash) const {  // TODO: change to 64 bit hash
-        return (((hash >> 32) & ((1 << 8) - 1))) ^ (((hash >> 16) & ((1 << 8) - 1))) ^
+        return (((hash >> 24) & ((1 << 8) - 1))) ^ (((hash >> 16) & ((1 << 8) - 1))) ^
         (((hash >> 8) & ((1 << 8) - 1))) ^ (hash & ((1 << 8) - 1));
     }
 
@@ -198,6 +268,9 @@ private:
 
     void InsertElementInBucket(Bucket_& bucket, Element_& element, size_t hash, size_t power_of_two_) {
         bucket.data_.push_front(element);
+        if (power_of_two_ > 31) {
+            return;
+        }
         if (((hash >> power_of_two_) & 1) == 0) {
             ++bucket.size_left_;
         } else {
@@ -231,50 +304,86 @@ private:
         return subtables_[optimal_subtable];
     }
 
-    Element_& GetFirstElementInBucketAfter(Bucket_& bucket, auto iter) {
-
-    }
-
 public:
     class iterator {
     public:
         iterator() = default;
 
-        explicit iterator(Element_* ptr) : ptr_(ptr) {}
+        iterator(std::array<Subtable_, SUBTABLES_NUMBER>& subtables, size_t subtable_number,
+        size_t bucket_number, typename std::list<std::pair<const KeyType, ValueType>>::iterator list_iterator) : subtables_(&subtables), subtable_number_(subtable_number),
+        bucket_number_(bucket_number), list_iterator_(list_iterator) {}
 
         iterator& operator++() {
-
+            auto& subtables = subtables_[0];
+            if (list_iterator_ != --subtables[subtable_number_].buckets_.get()[bucket_number_].data_.end()) {
+                ++list_iterator_;
+                return *this;
+            }
+            for (size_t j = bucket_number_ + 1; j < subtables[subtable_number_].subtable_size_; ++j) {
+                if (!subtables[subtable_number_].buckets_.get()[j].data_.empty()) {
+                    bucket_number_ = j;
+                    list_iterator_ = subtables[subtable_number_].buckets_.get()[j].data_.begin();
+                    return *this;
+                }
+            }
+            for (size_t i = subtable_number_ + 1; i < SUBTABLES_NUMBER; ++i) {
+                Subtable_& subtable = subtables[i];
+                for (size_t j = 0; j < subtable.subtable_size_; ++j) {
+                    if (!subtable.buckets_.get()[j].data_.empty()) {
+                        subtable_number_ = i;
+                        bucket_number_ = j;
+                        list_iterator_ = subtable.buckets_.get()[j].data_.begin();
+                        return *this;
+                    }
+                }
+            }
+            subtable_number_ = 0;
+            bucket_number_ = 0;
+            list_iterator_ = subtables[0].buckets_.get()[0].data_.end();
             return *this;
         }
 
         iterator operator++(int) {
             iterator tmp = *this;
-            ++ptr_;
+            ++*this;
             return tmp;
         }
 
         bool operator==(const iterator& other) const {
-            return ptr_ == other.ptr_;
+            return list_iterator_ == other.list_iterator_;
         }
 
         bool operator!=(const iterator& other) const {
-            return ptr_ != other.ptr_;
+            return list_iterator_ != other.list_iterator_;
         }
 
         Element_& operator*() const {
-            return *ptr_;
+            return *list_iterator_;
         }
 
         Element_* operator->() const {
-            return ptr_;
+            return list_iterator_.operator->();
         }
 
     private:
-        Element_* ptr_;
-        Subtable_* subtable_;
+        std::array<Subtable_, SUBTABLES_NUMBER>* subtables_;
         size_t subtable_number_;
         size_t bucket_number_;
         typename std::list<std::pair<const KeyType, ValueType>>::iterator list_iterator_;
+
+        Bucket_& GetFirstNonvoidBucket() {
+            for (size_t i = subtable_number_; i < SUBTABLES_NUMBER; ++i) {
+                Subtable_& subtable = subtables_[i];
+                for (size_t j = bucket_number_ + 1; j < subtable.subtable_size_; ++j) {
+                    if (!subtable.buckets_.get()[j].data_.empty()) {
+                        subtable_number_ = i;
+                        bucket_number_ = j;
+                        list_iterator_ = subtable.buckets_.get()[j].data_.begin();
+                        return subtable.buckets_.get()[j];
+                    }
+                }
+            }
+        }
 
     };
 
@@ -282,38 +391,64 @@ public:
     public:
         const_iterator() = default;
 
-        explicit const_iterator(const Element_* ptr) : ptr_(ptr) {}
+        const_iterator(const std::array<Subtable_, SUBTABLES_NUMBER>& subtables, size_t subtable_number, size_t bucket_number,
+                       typename std::list<std::pair<const KeyType, ValueType>>::iterator list_iterator) : subtables_(&subtables), subtable_number_(subtable_number),
+                       bucket_number_(bucket_number), list_iterator_(list_iterator) {}
 
         const_iterator& operator++() {
-            ++ptr_;
+            const auto& subtables = subtables_[0];
+            if (list_iterator_ != --subtables[subtable_number_].buckets_.get()[bucket_number_].data_.end()) {
+                ++list_iterator_;
+                return *this;
+            }
+            for (size_t j = bucket_number_ + 1; j < subtables[subtable_number_].subtable_size_; ++j) {
+                if (!subtables[subtable_number_].buckets_.get()[j].data_.empty()) {
+                    bucket_number_ = j;
+                    list_iterator_ = subtables[subtable_number_].buckets_.get()[j].data_.begin();
+                    return *this;
+                }
+            }
+            for (size_t i = subtable_number_ + 1; i < SUBTABLES_NUMBER; ++i) {
+                const auto& subtable = subtables[i];
+                for (size_t j = 0; j < subtable.subtable_size_; ++j) {
+                    if (!subtable.buckets_.get()[j].data_.empty()) {
+                        subtable_number_ = i;
+                        bucket_number_ = j;
+                        list_iterator_ = subtable.buckets_.get()[j].data_.begin();
+                        return *this;
+                    }
+                }
+            }
+            subtable_number_ = 0;
+            bucket_number_ = 0;
+            list_iterator_ = subtables[0].buckets_.get()[0].data_.end();
             return *this;
         }
 
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++ptr_;
+            ++*this;
             return tmp;
         }
 
         bool operator==(const const_iterator& other) const {
-            return ptr_ == other.ptr_;
+            return list_iterator_ == other.list_iterator_;
         }
 
         bool operator!=(const const_iterator& other) const {
-            return ptr_ != other.ptr_;
+            return list_iterator_ != other.list_iterator_;
         }
 
         const Element_& operator*() const {
-            return *ptr_;
+            return *list_iterator_;
         }
 
         const Element_* operator->() const {
-            return ptr_;
+            return list_iterator_.operator->();
         }
 
     private:
-        Element_* ptr_;
-        Subtable_* subtable_;
+        const std::array<Subtable_, SUBTABLES_NUMBER>* subtables_;
         size_t subtable_number_;
         size_t bucket_number_;
         typename std::list<std::pair<const KeyType, ValueType>>::iterator list_iterator_;
