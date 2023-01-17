@@ -87,13 +87,10 @@ public:
     }
 
     ValueType &operator[](KeyType key) {
-        try {
-            auto& element = FindElement(key);
-            return element.second;
-        } catch (std::out_of_range& exception) {
-            insert(std::make_pair(key, ValueType()));
-            return FindElement(key).second;
+        if (!CheckElementInTable(key)) {
+            insert({key, ValueType()});
         }
+        return FindElement(key).second;
     }
 
     const ValueType &at(KeyType key) const {
