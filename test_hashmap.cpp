@@ -4,6 +4,8 @@
 #include <functional>
 #include <stdexcept>
 #include <map>
+#include <random>
+#include <unordered_map>
 
 void fail(const char *message) {
     std::cerr << "Fail:\n";
@@ -36,8 +38,8 @@ struct StrangeInt {
         --counter;
     }
 
-    friend std::ostream& operator <<(std::ostream& out, const StrangeInt& x) {
-        out << x.x;
+    friend std::ostream& operator <<(std::ostream& out, const StrangeInt& b) {
+        out << b.x;
         return out;
     }
 };
@@ -60,7 +62,6 @@ namespace internal_tests {
         std::cerr << "check constness\n";
         if (map.empty())
             fail("incorrect empty method");
-
         static_assert(std::is_same<
                 HashMap<int, int>::const_iterator,
                 decltype(map.begin())
@@ -84,7 +85,6 @@ namespace internal_tests {
         std::cerr << "ok!\n";
     }
 
-/* check that 'at' raises std::out_of_range */
     void exception_check() {
         const HashMap<int, int> map{{2, 3}, {-7, -13}, {0, 8}};
         std::cerr << "check exception...\n";
@@ -102,7 +102,6 @@ namespace internal_tests {
         fail("'at' doesn't throw anything");
     }
 
-/* check if class correctly implements destructor */
     void check_destructor() {
         std::cerr << "check destructor... ";
         StrangeInt::init();
@@ -135,7 +134,6 @@ namespace internal_tests {
     }
 
 
-/* check operator [] for reference correctness */
     void reference_check() {
         HashMap<int, int> map{{3, 4}, {3, 5}, {4, 7}, {-1, -3}};
         std::cerr << "check references... ";
@@ -156,7 +154,6 @@ namespace internal_tests {
         return 0;
     }
 
-/* check custom hash functions */
     void hash_check() {
         std::cerr << "check hash functions\n";
         struct Hasher {
@@ -186,7 +183,6 @@ namespace internal_tests {
             fail("incorrect insert or [ ]");
         for (auto cur : second_map)
             std::cerr << cur.first << " " << cur.second << "\n";
-
         HashMap<int, int, std::function<size_t(int)>> stupid_map(stupid_hash);
         auto stupid_hash_fn = stupid_map.hash_function();
         for(int i = 0; i < 1000; ++i) {
@@ -199,26 +195,24 @@ namespace internal_tests {
         std::cerr << "ok!\n";
     }
 
-/* check copy constructor and operator = */
     void check_copy() {
         std::cerr << "check copy correctness...\n";
-        HashMap<int, int> first;
-        HashMap<int, int> second(first);
-        second.insert(std::make_pair(1, 1));
-        HashMap<int, int> third(second.begin(), second.end());
+        HashMap<int, int> First;
+        HashMap<int, int> Second(First);
+        Second.insert(std::make_pair(1, 1));
+        HashMap<int, int> third(Second.begin(), Second.end());
         third[0] = 5;
         if (third.size() != 2)
             fail("Wrong size");
-        first = third;
-        second = second = first;
-        if (first.find(0)->second != 5)
+        First = third;
+        Second = Second = First;
+        if (First.find(0)->second != 5)
             fail("wrong find");
-        if (second[0] != 5)
+        if (Second[0] != 5)
             fail("wrong [ ]");
         std::cerr << "ok!\n";
     }
 
-/* check if iterator and const_iterator are implemented correctly */
     void check_iterators() {
         std::cerr << "check iterators...\n";
         {
@@ -257,6 +251,115 @@ namespace internal_tests {
         std::cerr << "ok!\n";
     }
 
+    void my_check() {
+        std::cerr << "my_check...\n";
+
+        HashMap<int, int> map;
+
+        const int N = 10'000'000;
+
+        std::mt19937 gen(time(0));
+
+        long double start = clock();
+
+        for (int i = 0; i < N; i++) {
+            int key = gen() % (N * 10);
+            map.insert({key, i});
+            auto it = map.begin();
+            if (i % (N / 10) == 0) {
+                std::cerr << i << std::endl;
+            }
+        }
+
+        std::cerr << (clock() - start) / CLOCKS_PER_SEC << std::endl;
+
+        if (1) {
+            long double start1 = clock();
+            std::unordered_map<int, int> st;
+
+            for (int i = 0; i < N; i++) {
+                int key = gen() % (N * 10);
+                st.insert({key, i});
+                if (i % (N / 10) == 0) {
+                    std::cerr << i << std::endl;
+                }
+            }
+
+            std::cerr << "not me " << (clock() - start1) / CLOCKS_PER_SEC << std::endl;
+        }
+
+        //std::cerr << "ok!\n";
+    }
+
+    void my_check2() {
+        std::cerr << "my_check2...\n";
+
+        auto simple_hash = [](unsigned long long x) -> size_t {
+            return x % 2;
+        };
+        //HashMap<int, int, decltype(simple_hash)> map(simple_hash);
+        HashMap<int, int> map;
+
+        const int N = 1'00'000;
+
+        std::mt19937 gen(228);
+
+        long double start = clock();
+
+        for (int i = 0; i < N; i++) {
+            int key = gen() % (N * 10);
+            map[key] = 0;
+            map.find(key);
+            for (auto j : map) {
+                j.second++;
+            }
+            if (i % (N / 10) == 0) {
+                std::cerr << i << std::endl;
+                map.clear();
+            }
+        }
+
+//        for (int i = 0; i < N; i++) {
+//            int key = gen() % (N * 10);
+//            map.erase(key);
+//            if (i % (N / 10) == 0) {
+//                std::cerr << i << std::endl;
+//            }
+//        }
+
+        std::cerr << (clock() - start) / CLOCKS_PER_SEC << std::endl;
+
+        if (1) {
+            long double start1 = clock();
+            std::unordered_map<int, int> st;
+
+            for (int i = 0; i < N; i++) {
+                int key = gen() % (N * 10);
+                st[key] = 0;
+                st.find(key);
+                for (auto j : st) {
+                    j.second++;
+                }
+                if (i % (N / 10) == 0) {
+                    std::cerr << i << std::endl;
+                    st.clear();
+                }
+            }
+
+//            for (int i = 0; i < N; i++) {
+//                int key = gen() % (N * 10);
+//                st.erase(key);
+//                if (i % (N / 10) == 0) {
+//                    //std::cerr << i << std::endl;
+//                }
+//            }
+
+            std::cerr << (clock() - start1) / CLOCKS_PER_SEC << std::endl;
+        }
+
+        //std::cerr << "ok!\n";
+    }
+
     void run_all() {
         const_check();
         exception_check();
@@ -265,6 +368,12 @@ namespace internal_tests {
         check_destructor();
         check_copy();
         check_iterators();
+        for (int t = 0; t < 0; t++) {
+            my_check();
+        }
+        for (int t = 0; t < 1; t++) {
+            my_check2();
+        }
     }
 } // namespace internal_tests
 
