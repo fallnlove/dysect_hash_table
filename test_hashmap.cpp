@@ -208,6 +208,7 @@ namespace internal_tests {
         Second = Second = First;
         if (First.find(0)->second != 5)
             fail("wrong find");
+        auto v = Second[0];
         if (Second[0] != 5)
             fail("wrong [ ]");
         std::cerr << "ok!\n";
@@ -225,6 +226,9 @@ namespace internal_tests {
             >::value, "Iterator's key type isn't const");
             if (it++ != first.begin())
                 fail("bad post ++");
+            auto a = first.begin();
+            auto b = first.end();
+            auto c = ++first.begin();
             if (!(it == first.end()))
                 fail("bad post ++");
             if (++first.begin() != first.end())
@@ -315,7 +319,6 @@ namespace internal_tests {
             }
             if (i % (N / 10) == 0) {
                 std::cerr << i << std::endl;
-                map.clear();
             }
         }
 
@@ -342,7 +345,6 @@ namespace internal_tests {
                 }
                 if (i % (N / 10) == 0) {
                     std::cerr << i << std::endl;
-                    st.clear();
                 }
             }
 
@@ -360,6 +362,198 @@ namespace internal_tests {
         //std::cerr << "ok!\n";
     }
 
+    const int N = 1'000'000;
+    std::vector<std::pair<int, int>> v(N);
+
+    void insert_test() {
+        std::cerr << "Insertion test\n My own map:" << "   ";
+        std::mt19937_64 gen;
+        {
+            HashMap<int, int> map;
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+                if (i == 5'0'000) {
+                    auto d = 2;
+                }
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+        std::cerr << "System map:" << "   ";
+        {
+            std::unordered_map<int, int> map;
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+    }
+
+    void erase_test() {
+            std::cerr << "Erase test\n My own map:" << "   ";
+            std::mt19937_64 gen;
+            {
+                HashMap<int, int> map;
+                for (int i = 0; i < N; i++) {
+                    map.insert(v[i]);
+                }
+                double start = clock() * 1.0;
+                for (int i = 0; i < N; i++) {
+                    map.erase(v[i].first);
+                }
+                std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+            }
+            std::cerr << "System map:" << "   ";
+            {
+                std::unordered_map<int, int> map;
+                for (int i = 0; i < N; i++) {
+                    map.insert(v[i]);
+                }
+                double start = clock() * 1.0;
+                for (int i = 0; i < N; i++) {
+                    map.erase(v[i].first);
+                }
+                std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+            }
+    }
+
+    void find_test() {
+        std::cerr << "Find test\n My own map:" << "   ";
+        std::mt19937_64 gen;
+        {
+            HashMap<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                map.find(v[i].first);
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+        std::cerr << "System map:" << "   ";
+        {
+            std::unordered_map<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                map.find(v[i].first);
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+    }
+
+    void find_emp_test() {
+        std::cerr << "Find void elements test, but map has N elements\n My own map:" << "   ";
+        std::mt19937_64 gen;
+        {
+            HashMap<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                (*map.find(v[i].first)).second++;
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+        std::cerr << "System map:" << "   ";
+        {
+            std::unordered_map<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                (*map.find(v[i].first)).second++;
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+    }
+
+    void clear_test() {
+        std::cerr << "Clear map with N elements\n My own map:" << "   ";
+        std::mt19937_64 gen;
+        {
+            HashMap<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            map.clear();
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+        std::cerr << "System map:" << "   ";
+        {
+            std::unordered_map<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            map.clear();
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+    }
+
+    void iterator_test() {
+        std::cerr << "Iterate N elements\n My own map:" << "   ";
+        std::mt19937_64 gen;
+        {
+            HashMap<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (auto& it : map) {
+                it.second++;
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+        std::cerr << "System map:" << "   ";
+        {
+            std::unordered_map<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (auto& it : map) {
+                it.second++;
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+    }
+
+    void skobki_test() {
+        std::cerr << "Acess to element by [] N elements\n My own map:" << "   ";
+        std::mt19937_64 gen;
+        {
+            HashMap<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                map[v[i].first]++;
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+        std::cerr << "System map:" << "   ";
+        {
+            std::unordered_map<int, int> map;
+            for (int i = 0; i < N; i++) {
+                map.insert(v[i]);
+            }
+            double start = clock() * 1.0;
+            for (int i = 0; i < N; i++) {
+                map[v[i].first]++;
+            }
+            std::cerr << (clock() * 1.0 - start) / CLOCKS_PER_SEC << std::endl;
+        }
+    }
+
     void run_all() {
         const_check();
         exception_check();
@@ -368,12 +562,20 @@ namespace internal_tests {
         check_destructor();
         check_copy();
         check_iterators();
-        for (int t = 0; t < 0; t++) {
-            my_check();
+
+        std::mt19937_64 gen;
+
+        for (int i = 0; i < N; i++) {
+            v[i] = {gen(), gen()};
         }
-        for (int t = 0; t < 1; t++) {
-            my_check2();
-        }
+
+        insert_test();
+        erase_test();
+        find_test();
+        find_emp_test();
+        clear_test();
+        iterator_test();
+        skobki_test();
     }
 } // namespace internal_tests
 
