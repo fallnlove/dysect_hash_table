@@ -207,7 +207,7 @@ void HashMap<KeyType, ValueType, Hash>::insert(std::pair<KeyType, ValueType> ele
     if (!IsExist(element.first)) {
         InsertElement(element);
         size_++;
-        if ((double)capacity_ * load_factor_ < (double)size_) {
+        if ((double)capacity_ * load_factor_ <= (double)size_) {
             ReHash();
         }
     }
@@ -233,6 +233,8 @@ void HashMap<KeyType, ValueType, Hash>::erase(KeyType key) {
     while (!table_[position].get()->is_deleted_ && table_[position].get()->psl_ > 0) {
         size_t prev_position = PrevPos(position);
         swap(table_[position], table_[prev_position]);
+        table_[prev_position].get()->psl_--;
+        position = NextPos(position);
     }
 }
 
@@ -319,19 +321,18 @@ void HashMap<KeyType, ValueType, Hash>::ReHash() {
     table_.resize(capacity_);
     InitializedElements();
     for (auto &element : old_table) {
-        InsertElement(element.get()->value_);
+        if (!element.get()->is_deleted_) {
+            InsertElement(element.get()->value_);
+        }
     }
 }
 
 template<class KeyType, class ValueType, class Hash>
 bool HashMap<KeyType, ValueType, Hash>::IsExist(KeyType key) const {
-    size_t psl = 0;
-    for (size_t position = hasher_(key) % capacity_; !table_[position].get()->is_deleted_ && table_[position].get()->psl_ >= psl; ++psl, position = NextPos(position)) {
-        if (table_[position].get()->value_.first == key) {
-            return true;
-        }
+    if (find(key) == end()) {
+        return false;
     }
-    return false;
+    return true;
 }
 
 template<class KeyType, class ValueType, class Hash>
@@ -343,9 +344,10 @@ void HashMap<KeyType, ValueType, Hash>::InsertElement(std::pair<KeyType, ValueTy
         psl++;
     }
     size_t current_position = start_position;
-    while (!table_[current_position].get()->is_deleted_) {
+    while (!table_[start_position].get()->is_deleted_) {
         current_position = NextPos(current_position);
         std::swap(table_[current_position], table_[start_position]);
+        table_[current_position].get()->psl_++;
     }
     table_[start_position].reset(new Bucket_({element, false, psl}));
 }
