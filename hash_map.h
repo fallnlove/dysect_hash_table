@@ -18,55 +18,9 @@
 template<class KeyType, class ValueType, class Hash = std::hash<KeyType> >
 class HashMap {
 public:
-    class iterator {
-    public:
-        iterator() = default;
+    class iterator;
 
-        iterator(std::vector<std::list<std::pair<const KeyType, ValueType>>>& table, size_t index, typename std::list<std::pair<const KeyType, ValueType>>::iterator it);
-
-        iterator& operator++();
-
-        iterator operator++(int);
-
-        std::pair<const KeyType, ValueType>& operator*();
-
-        std::pair<const KeyType, ValueType>* operator->();
-
-        bool operator==(const iterator& other) const;
-
-        bool operator!=(const iterator& other) const;
-
-    private:
-        std::vector<std::list<std::pair<const KeyType, ValueType>>>* table_;
-        size_t index_;
-        typename std::list<std::pair<const KeyType, ValueType>>::iterator it_;
-
-    };
-
-    class const_iterator {
-    public:
-        const_iterator() = default;
-
-        const_iterator(const std::vector<std::list<std::pair<const KeyType, ValueType>>>& table, size_t index, typename std::list<std::pair<const KeyType, ValueType>>::const_iterator it);
-
-        const_iterator& operator++();
-
-        const_iterator operator++(int);
-
-        const std::pair<const KeyType, ValueType>& operator*();
-
-        const std::pair<const KeyType, ValueType>* operator->();
-
-        bool operator==(const const_iterator& other) const;
-
-        bool operator!=(const const_iterator& other) const;
-
-    private:
-        const std::vector<std::list<std::pair<const KeyType, ValueType>>>* table_;
-        size_t index_;
-        typename std::list<std::pair<const KeyType, ValueType>>::const_iterator it_;
-
-    };
+    class const_iterator;
 
     explicit HashMap(const Hash& hasher = Hash());
 
@@ -108,11 +62,18 @@ public:
     void clear();
 
 private:
+    struct Bucket_ {
+    public:
+        std::pair<const KeyType, ValueType> value_;
+        bool is_deleted_ = true;
+        size_t psl_ = 0;
+    };
+
     Hash hasher_;
     size_t size_;
     size_t capacity_;
-    std::vector<std::list<std::pair<const KeyType, ValueType>>> table_;
-    double load_factor_ = 0.125;  // TODO : change load factor
+    std::vector<std::shared_ptr<Bucket_>> table_;
+    double load_factor_ = 0.8;  // TODO : change load factor
 
     void ReHash();
 
@@ -120,12 +81,67 @@ private:
 
     bool IsExist(KeyType key) const;
 
+    void InitializedElements();
+
+    size_t NextPos(size_t position) const;
+
+    size_t PrevPos(size_t position) const;
+
+public:
+    class iterator {
+    public:
+        iterator() = default;
+
+        iterator(typename std::vector<std::shared_ptr<Bucket_>>::iterator, typename std::vector<std::shared_ptr<Bucket_>>::iterator end);
+
+        iterator& operator++();
+
+        iterator operator++(int);
+
+        std::pair<const KeyType, ValueType>& operator*();
+
+        std::pair<const KeyType, ValueType>* operator->();
+
+        bool operator==(const iterator& other) const;
+
+        bool operator!=(const iterator& other) const;
+
+    private:
+        typename std::vector<std::shared_ptr<Bucket_>>::iterator it_;
+        typename std::vector<std::shared_ptr<Bucket_>>::iterator end_;
+
+    };
+
+    class const_iterator {
+    public:
+        const_iterator() = default;
+
+        const_iterator(typename std::vector<std::shared_ptr<Bucket_>>::const_iterator it, typename std::vector<std::shared_ptr<Bucket_>>::const_iterator end);
+
+        const_iterator& operator++();
+
+        const_iterator operator++(int);
+
+        const std::pair<const KeyType, ValueType>& operator*();
+
+        const std::pair<const KeyType, ValueType>* operator->();
+
+        bool operator==(const const_iterator& other) const;
+
+        bool operator!=(const const_iterator& other) const;
+
+    private:
+        typename std::vector<std::shared_ptr<Bucket_>>::const_iterator it_;
+        typename std::vector<std::shared_ptr<Bucket_>>::const_iterator end_;
+    };
+
 };
 
 template<class KeyType, class ValueType, class Hash>
 template<class InputIterator>
 HashMap<KeyType, ValueType, Hash>::HashMap(InputIterator begin, InputIterator end, Hash hasher) : hasher_(hasher),
                                                                                                   size_(0), capacity_(8), table_(8) {
+    InitializedElements();
     while (begin != end) {
         insert(*begin);
         begin++;
@@ -135,6 +151,7 @@ HashMap<KeyType, ValueType, Hash>::HashMap(InputIterator begin, InputIterator en
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::HashMap(const HashMap &other) : hasher_(other.hasher_),
                                                                    size_(0), capacity_(other.capacity_), table_(other.capacity_)  {
+    InitializedElements();
     hasher_ = other.hasher_;
     for (auto& element : other) {
         insert(element);
@@ -145,6 +162,7 @@ template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::HashMap(std::initializer_list<std::pair<KeyType, ValueType>> list,
                                            const Hash& hasher) : hasher_(hasher), size_(0), capacity_(8),
                                                                  table_(8) {
+    InitializedElements();
     for (auto &element : list) {
         insert(element);
     }
@@ -153,6 +171,7 @@ HashMap<KeyType, ValueType, Hash>::HashMap(std::initializer_list<std::pair<KeyTy
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::HashMap(const Hash& hasher) : hasher_(hasher),
                                                                  size_(0), capacity_(8), table_(8) {
+    InitializedElements();
 }
 
 template<class KeyType, class ValueType, class Hash>
@@ -185,11 +204,10 @@ Hash HashMap<KeyType, ValueType, Hash>::hash_function() const {
 
 template<class KeyType, class ValueType, class Hash>
 void HashMap<KeyType, ValueType, Hash>::insert(std::pair<KeyType, ValueType> element) {
-    size_t hash = hasher_(element.first) % capacity_;
     if (!IsExist(element.first)) {
-        table_[hash].push_back(element);
+        InsertElement(element);
         size_++;
-        if (size_ * load_factor_ > capacity_ * 1.0) {
+        if ((double)capacity_ * load_factor_ < (double)size_) {
             ReHash();
         }
     }
@@ -197,22 +215,33 @@ void HashMap<KeyType, ValueType, Hash>::insert(std::pair<KeyType, ValueType> ele
 
 template<class KeyType, class ValueType, class Hash>
 void HashMap<KeyType, ValueType, Hash>::erase(KeyType key) {
-    size_t hash = hasher_(key) % capacity_;
-    for (auto it = table_[hash].begin(); it != table_[hash].end(); it++) {
-        if (it->first == key) {
-            table_[hash].erase(it);
-            size_--;
-            return;
+    size_t psl = 0;
+    size_t position = hasher_(key) % capacity_;
+    while (!table_[position].get()->is_deleted_ && table_[position].get()->psl_ >= psl) {
+        if (table_[position].get()->value_.first == key) {
+            break;
         }
+        ++psl;
+        position = NextPos(position);
+    }
+    if (table_[position].get()->is_deleted_ || table_[position].get()->psl_ < psl) {
+        return;
+    }
+    table_[position].get()->is_deleted_ = true;
+    size_--;
+    position = NextPos(position);
+    while (!table_[position].get()->is_deleted_ && table_[position].get()->psl_ > 0) {
+        size_t prev_position = PrevPos(position);
+        swap(table_[position], table_[prev_position]);
     }
 }
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::iterator HashMap<KeyType, ValueType, Hash>::find(KeyType key) {
-    size_t hash = hasher_(key) % capacity_;
-    for (auto it = table_[hash].begin(); it != table_[hash].end(); it++) {
-        if (it->first == key) {
-            return iterator(table_, hash, it);
+    size_t psl = 0;
+    for (size_t position = hasher_(key) % capacity_; !table_[position].get()->is_deleted_ && table_[position].get()->psl_ >= psl; ++psl, position = NextPos(position)) {
+        if (table_[position].get()->value_.first == key) {
+            return iterator(table_.begin() + position, table_.end());
         }
     }
     return end();
@@ -220,10 +249,10 @@ typename HashMap<KeyType, ValueType, Hash>::iterator HashMap<KeyType, ValueType,
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::const_iterator HashMap<KeyType, ValueType, Hash>::find(KeyType key) const {
-    size_t hash = hasher_(key) % capacity_;
-    for (auto it = table_[hash].begin(); it != table_[hash].end(); it++) {
-        if (it->first == key) {
-            return const_iterator(table_, hash, it);
+    size_t psl = 0;
+    for (size_t position = hasher_(key) % capacity_; !table_[position].get()->is_deleted_ && table_[position].get()->psl_ >= psl; ++psl, position = NextPos(position)) {
+        if (table_[position].get()->value_.first == key) {
+            return const_iterator(table_.begin() + position, table_.end());
         }
     }
     return end();
@@ -246,31 +275,31 @@ const ValueType &HashMap<KeyType, ValueType, Hash>::at(KeyType key) const {
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::iterator HashMap<KeyType, ValueType, Hash>::begin() {
     for (size_t i = 0; i < capacity_; i++) {
-        if (!table_[i].empty()) {
-            return iterator(table_, i, table_[i].begin());
+        if (!table_[i].get()->is_deleted_) {
+            return iterator(table_.begin() + i, table_.end());
         }
     }
-    return iterator(table_, capacity_, table_[0].begin());
+    return iterator(table_.end(), table_.end());
 }
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::iterator HashMap<KeyType, ValueType, Hash>::end() {
-    return iterator(table_, capacity_, table_[0].begin());
+    return iterator(table_.end(), table_.end());
 }
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::const_iterator HashMap<KeyType, ValueType, Hash>::begin() const {
     for (size_t i = 0; i < capacity_; i++) {
-        if (!table_[i].empty()) {
-            return const_iterator(table_, i, table_[i].begin());
+        if (!table_[i].get()->is_deleted_) {
+            return const_iterator(table_.begin() + i, table_.end());
         }
     }
-    return const_iterator(table_, capacity_, table_[0].begin());
+    return const_iterator(table_.end(), table_.end());
 }
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::const_iterator HashMap<KeyType, ValueType, Hash>::end() const {
-    return const_iterator(table_, capacity_, table_[0].begin());
+    return const_iterator(table_.end(), table_.end());
 }
 
 template<class KeyType, class ValueType, class Hash>
@@ -279,6 +308,7 @@ void HashMap<KeyType, ValueType, Hash>::clear() {
     capacity_ = 8;
     table_.clear();
     table_.resize(8);
+    InitializedElements();
 }
 
 template<class KeyType, class ValueType, class Hash>
@@ -287,18 +317,17 @@ void HashMap<KeyType, ValueType, Hash>::ReHash() {
     capacity_ *= 2;
     table_.clear();
     table_.resize(capacity_);
-    for (auto &list : old_table) {
-        for (auto &element : list) {
-            InsertElement(element);
-        }
+    InitializedElements();
+    for (auto &element : old_table) {
+        InsertElement(element.get()->value_);
     }
 }
 
 template<class KeyType, class ValueType, class Hash>
 bool HashMap<KeyType, ValueType, Hash>::IsExist(KeyType key) const {
-    size_t hash = hasher_(key) % capacity_;
-    for (auto &element : table_[hash]) {
-        if (element.first == key) {
+    size_t psl = 0;
+    for (size_t position = hasher_(key) % capacity_; !table_[position].get()->is_deleted_ && table_[position].get()->psl_ >= psl; ++psl, position = NextPos(position)) {
+        if (table_[position].get()->value_.first == key) {
             return true;
         }
     }
@@ -307,30 +336,56 @@ bool HashMap<KeyType, ValueType, Hash>::IsExist(KeyType key) const {
 
 template<class KeyType, class ValueType, class Hash>
 void HashMap<KeyType, ValueType, Hash>::InsertElement(std::pair<KeyType, ValueType> element) {
-    size_t hash = hasher_(element.first) % capacity_;
-    table_[hash].push_back(element);
+    size_t start_position = hasher_(element.first) % capacity_;
+    size_t psl = 0;
+    while(psl <= table_[start_position].get()->psl_ && !table_[start_position].get()->is_deleted_) {
+        start_position = NextPos(start_position);
+        psl++;
+    }
+    size_t current_position = start_position;
+    while (!table_[current_position].get()->is_deleted_) {
+        current_position = NextPos(current_position);
+        std::swap(table_[current_position], table_[start_position]);
+    }
+    table_[start_position].reset(new Bucket_({element, false, psl}));
+}
+
+template<class KeyType, class ValueType, class Hash>
+void HashMap<KeyType, ValueType, Hash>::InitializedElements() {
+    for (size_t i = 0; i < capacity_; ++i) {
+        table_[i].reset(new Bucket_({{}, true, 0}));
+    }
+}
+
+template<class KeyType, class ValueType, class Hash>
+size_t HashMap<KeyType, ValueType, Hash>::NextPos(size_t position) const {
+    ++position;
+    if (position == capacity_) {
+        position = 0;
+    }
+    return position;
+}
+
+template<class KeyType, class ValueType, class Hash>
+size_t HashMap<KeyType, ValueType, Hash>::PrevPos(size_t position) const {
+    if (position == 0) {
+        position = capacity_;
+    }
+    --position;
+    return position;
 }
 
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::iterator::iterator(
-        std::vector<std::list<std::pair<const KeyType, ValueType>>> &table, size_t index,
-        typename std::list<std::pair<const KeyType, ValueType>>::iterator it) : table_(&table), index_(index), it_(it) {}
+        typename std::vector<std::shared_ptr<Bucket_>>::iterator it,
+        typename std::vector<std::shared_ptr<Bucket_>>::iterator end) : it_(it), end_(end) {}
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::iterator& HashMap<KeyType, ValueType, Hash>::iterator::operator++() {
-    if (it_ != --table_->at(index_).end()) {
-        it_++;
-        return *this;
+    ++it_;
+    while (it_ != end_ && (*it_).get()->is_deleted_) {
+        ++it_;
     }
-    for (size_t i = index_ + 1; i < table_->size(); i++) {
-        if (!table_->at(i).empty()) {
-            index_ = i;
-            it_ = table_->at(i).begin();
-            return *this;
-        }
-    }
-    index_ = table_->size();
-    it_ = table_->at(0).begin();
     return *this;
 }
 
@@ -343,17 +398,17 @@ typename HashMap<KeyType, ValueType, Hash>::iterator HashMap<KeyType, ValueType,
 
 template<class KeyType, class ValueType, class Hash>
 std::pair<const KeyType, ValueType>& HashMap<KeyType, ValueType, Hash>::iterator::operator*() {
-    return *it_;
+    return (*it_).get()->value_;
 }
 
 template<class KeyType, class ValueType, class Hash>
 std::pair<const KeyType, ValueType>* HashMap<KeyType, ValueType, Hash>::iterator::operator->() {
-    return it_.operator->();
+    return &((*it_).get()->value_);
 }
 
 template<class KeyType, class ValueType, class Hash>
 bool HashMap<KeyType, ValueType, Hash>::iterator::operator==(const iterator& other) const {
-    return table_ == other.table_ && index_ == other.index_ && it_ == other.it_;
+    return it_ == other.it_;
 }
 
 template<class KeyType, class ValueType, class Hash>
@@ -363,24 +418,15 @@ bool HashMap<KeyType, ValueType, Hash>::iterator::operator!=(const iterator& oth
 
 template<class KeyType, class ValueType, class Hash>
 HashMap<KeyType, ValueType, Hash>::const_iterator::const_iterator(
-        const std::vector<std::list<std::pair<const KeyType, ValueType>>>& table, size_t index,
-        typename std::list<std::pair<const KeyType, ValueType>>::const_iterator it) : table_(&table), index_(index), it_(it) {}
+        typename std::vector<std::shared_ptr<Bucket_>>::const_iterator it,
+        typename std::vector<std::shared_ptr<Bucket_>>::const_iterator end) : it_(it), end_(end) {}
 
 template<class KeyType, class ValueType, class Hash>
 typename HashMap<KeyType, ValueType, Hash>::const_iterator& HashMap<KeyType, ValueType, Hash>::const_iterator::operator++() {
-    if (it_ != --table_->at(index_).end()) {
-        it_++;
-        return *this;
+    ++it_;
+    while (it_ != end_ && (*it_).get()->is_deleted_) {
+        ++it_;
     }
-    for (size_t i = index_ + 1; i < table_->size(); i++) {
-        if (!table_->at(i).empty()) {
-            index_ = i;
-            it_ = table_->at(i).begin();
-            return *this;
-        }
-    }
-    index_ = table_->size();
-    it_ = table_->at(0).begin();
     return *this;
 }
 
@@ -393,17 +439,17 @@ typename HashMap<KeyType, ValueType, Hash>::const_iterator HashMap<KeyType, Valu
 
 template<class KeyType, class ValueType, class Hash>
 const std::pair<const KeyType, ValueType>& HashMap<KeyType, ValueType, Hash>::const_iterator::operator*() {
-    return *it_;
+    return (*it_).get()->value_;
 }
 
 template<class KeyType, class ValueType, class Hash>
 const std::pair<const KeyType, ValueType>* HashMap<KeyType, ValueType, Hash>::const_iterator::operator->() {
-    return it_.operator->();
+    return &((*it_).get()->value_);
 }
 
 template<class KeyType, class ValueType, class Hash>
 bool HashMap<KeyType, ValueType, Hash>::const_iterator::operator==(const const_iterator& other) const {
-    return table_ == other.table_ && index_ == other.index_ && it_ == other.it_;
+    return it_ == other.it_;
 }
 
 template<class KeyType, class ValueType, class Hash>
